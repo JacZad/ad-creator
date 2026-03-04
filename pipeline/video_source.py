@@ -99,12 +99,16 @@ def extract_audio_wav(url: str, output_dir: str | None = None) -> str:
 
 def download_video(url: str, output_dir: str | None = None) -> str:
     """
-    Download the best quality video+audio as MP4.
-    Returns the path to the downloaded file.
+    Return path to an MP4 video file — copies local files, downloads remote URLs via yt-dlp.
     """
     output_dir = output_dir or config.TEMP_DIR
     os.makedirs(output_dir, exist_ok=True)
 
+    # Local file — just return it directly (no download needed)
+    if os.path.exists(url):
+        return url
+
+    # Remote URL — download via yt-dlp
     video_id = get_video_id(url)
     timestamp = int(time.time())
     output_template = os.path.join(output_dir, f"{video_id}_{timestamp}_video.%(ext)s")
