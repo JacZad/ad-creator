@@ -6,6 +6,7 @@ AD can be placed over music or ambient sounds, but never over dialogue/speech.
 """
 from __future__ import annotations
 
+import io
 import os
 import subprocess
 
@@ -17,6 +18,28 @@ _HUB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 
 _silero_model = None
 _silero_utils = None
+
+
+def _read_audio_16k(audio_path: str):
+    """
+    Load audio as 16 kHz mono float32 torch tensor — without torchaudio/torchcodec.
+    Uses FFmpeg to resample and soundfile to decode.
+    """
+    import numpy as np
+    import soundfile as sf
+    import torch
+
+    cmd = [
+        "ffmpeg", "-i", audio_path,
+        "-ar", "16000", "-ac", "1",
+        "-f", "wav", "-",
+    ]
+    result = subprocess.run(cmd, capture_output=True, timeout=300)
+    if result.returncode != 0:
+        raise RuntimeError(f"FFmpeg resampling failed: {result.stderr.decode()[:300]}")
+
+    data, _ = sf.read(io.BytesIO(result.stdout), dtype="float32", always_2d=False)
+    return torch.from_numpy(data)
 
 
 def _load_silero() -> tuple:
@@ -48,10 +71,9 @@ def detect_speech_gaps(
     min_duration = min_duration if min_duration is not None else config.SILENCE_MIN_DURATION
 
     model, utils = _load_silero()
-    get_speech_timestamps, _, read_audio, _, _ = utils
+    get_speech_timestamps = utils[0]
 
-    # Silero requires 16 kHz mono; read_audio handles conversion via torchaudio
-    wav = read_audio(audio_path, sampling_rate=16_000)
+    wav = _read_audio_16k(audio_path)
 
     speech_ts = get_speech_timestamps(
         wav, model,
@@ -59,19 +81,18 @@ def detect_speech_gaps(
         threshold=vad_threshold,
         min_speech_duration_ms=100,
         min_silence_duration_ms=100,
-        speech_pad_ms=200,          # 200 ms buffer around each speech segment
-        return_seconds=False,       # returns sample indices
+        speech_pad_ms=200,
+        return_seconds=False,
     )
 
     sample_rate = 16_000
     total_ms = int(len(wav) / sample_rate * 1000)
     min_ms = seconds_to_ms(min_duration)
 
-    # Build non-speech gaps from the inverse of speech timestamps
     speech_regions = [(int(t["start"] / sample_rate * 1000),
                        int(t["end"]   / sample_rate * 1000)) for t in speech_ts]
 
-    # Merge overlapping regions (padding can cause overlaps)
+    # Merge overlapping regions (speech_pad_ms can cause overlaps)
     merged: list[tuple[int, int]] = []
     for start, end in sorted(speech_regions):
         if merged and start <= merged[-1][1]:
@@ -79,11 +100,9 @@ def detect_speech_gaps(
         else:
             merged.append((start, end))
 
-    # Gaps are the intervals between (and around) speech regions
-    gaps: list[dict] = []
+    # Gaps are intervals between (and around) speech regions
     boundaries = [0] + [t for region in merged for t in region] + [total_ms]
-    # boundaries: [0, speech1_start, speech1_end, speech2_start, speech2_end, ..., total]
-    # even-indexed pairs are non-speech intervals
+    gaps: list[dict] = []
     for i in range(0, len(boundaries) - 1, 2):
         gap_start = boundaries[i]
         gap_end = boundaries[i + 1]
