@@ -140,7 +140,7 @@ def upload_to_gemini(file_path: str):
     from google import genai
 
     client = genai.Client(api_key=config.GEMINI_API_KEY)
-    uploaded = client.files.upload(path=file_path)
+    uploaded = client.files.upload(file=file_path)
 
     # Wait for file to become ACTIVE
     for _ in range(60):
