@@ -44,12 +44,28 @@ def get_video_for_gemini(url: str):
 
 def extract_audio_wav(url: str, output_dir: str | None = None) -> str:
     """
-    Download and extract audio as WAV using yt-dlp.
+    Extract audio as WAV from a URL (via yt-dlp) or a local file (via FFmpeg).
     Returns the path to the WAV file.
     """
     output_dir = output_dir or config.TEMP_DIR
     os.makedirs(output_dir, exist_ok=True)
 
+    # Local file — use FFmpeg directly
+    if os.path.exists(url):
+        video_id = get_video_id(url)
+        timestamp = int(time.time())
+        wav_path = os.path.join(output_dir, f"{video_id}_{timestamp}_audio.wav")
+        cmd = [
+            "ffmpeg", "-y", "-i", url,
+            "-vn", "-ar", "44100", "-ac", "2",
+            wav_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            raise RuntimeError(f"FFmpeg audio extraction failed: {result.stderr[-500:]}")
+        return wav_path
+
+    # Remote URL — use yt-dlp
     video_id = get_video_id(url)
     timestamp = int(time.time())
     output_template = os.path.join(output_dir, f"{video_id}_{timestamp}_audio.%(ext)s")
