@@ -16,10 +16,14 @@ from models.segment import ADSegment, SegmentStatus
 
 _SHORTEN_PROMPT = """\
 Skróć poniższy opis wizualny do maksymalnie {max_words} słów.
+Napisz pełne, gramatyczne zdanie — nie słowa kluczowe, nie listę.
 Zachowaj najważniejsze informacje wizualne.
-Odpowiedz TYLKO skróconym opisem, bez żadnych komentarzy.
+Odpowiedz TYLKO skróconym zdaniem, bez żadnych komentarzy.
 
 Opis: {text}"""
+
+# Minimum words to ever request — avoids keyword-style responses
+_MIN_SHORTEN_WORDS = 8
 
 # How far back from a description's timestamp we look for a suitable gap (ms)
 _LOOK_BACK_MS = 15_000
@@ -138,18 +142,18 @@ def fit_descriptions_to_gaps(
                 # Try shortening up to 2 times
                 shortened = text
                 success = False
-                current_max = max_words
+                current_max = max(max_words, _MIN_SHORTEN_WORDS)
                 for attempt in range(2):
                     try:
                         shortened = _shorten_text(shortened, current_max, model, client)
                         actual_count = len(shortened.split())
-                        if actual_count <= max_words:
+                        if actual_count <= max(max_words, _MIN_SHORTEN_WORDS):
                             segment.text = shortened
                             segment.text_word_count = actual_count
                             segment.status = SegmentStatus.GENERATED
                             success = True
                             break
-                        current_max = max(1, current_max - 2)
+                        current_max = max(_MIN_SHORTEN_WORDS, current_max - 2)
                     except Exception:
                         time.sleep(2)
 
