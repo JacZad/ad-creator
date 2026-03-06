@@ -14,6 +14,7 @@ from typing import Callable
 
 import config
 from models.segment import ADSegment, SegmentStatus
+from utils import tts_cache
 
 _SAMPLE_RATE = 24_000   # Hz
 _SAMPLE_WIDTH = 2       # bytes (16-bit)
@@ -79,25 +80,44 @@ def synthesize_segment(
     segment: ADSegment,
     voice: str | None = None,
     model: str | None = None,
+    client=None,
 ) -> ADSegment:
     """
     Synthesise TTS for one segment. Mutates and returns the segment.
     Applies overflow recovery: retry with faster tempo, then shorten text 20%.
+    Checks disk cache before making any API call.
     """
     from google import genai
 
     voice = voice or config.GEMINI_TTS_VOICE
     model = model or config.GEMINI_MODEL_TTS
-    client = genai.Client(api_key=config.GEMINI_API_KEY)
+    if client is None:
+        client = genai.Client(api_key=config.GEMINI_API_KEY)
 
     allowed_ms = segment.gap_duration_ms - 400  # 400 ms total safety margin
     text = segment.text
+
+    # Check cache for original text at normal tempo
+    key = tts_cache.cache_key(text, voice, model)
+    cached_pcm = tts_cache.get(key, config.TTS_CACHE_DIR)
+    if cached_pcm is not None:
+        duration_ms = _pcm_duration_ms(cached_pcm)
+        segment.tts_audio = _pcm_to_wav(cached_pcm)
+        segment.tts_duration_ms = duration_ms
+        segment.status = SegmentStatus.FITTED if duration_ms <= allowed_ms else SegmentStatus.OVERFLOW
+        return segment
 
     for attempt in range(3):
         prompt_tpl = _TTS_PROMPT if attempt == 0 else _TTS_PROMPT_FAST
         try:
             pcm = _call_tts(text, prompt_tpl, client, model, voice)
         except Exception as exc:
+            exc_str = str(exc)
+            if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str:
+                raise RuntimeError(
+                    "Przekroczono dzienny limit zapytań TTS. "
+                    "Sprawdź limit w Google AI Studio lub spróbuj jutro."
+                ) from exc
             time.sleep(2 ** attempt)
             if attempt == 2:
                 raise RuntimeError(f"TTS failed after 3 attempts: {exc}") from exc
@@ -106,6 +126,7 @@ def synthesize_segment(
         duration_ms = _pcm_duration_ms(pcm)
 
         if duration_ms <= allowed_ms:
+            tts_cache.put(key, pcm, config.TTS_CACHE_DIR)
             segment.tts_audio = _pcm_to_wav(pcm)
             segment.tts_duration_ms = duration_ms
             segment.status = SegmentStatus.FITTED
@@ -117,7 +138,8 @@ def synthesize_segment(
             keep = max(1, int(len(words) * 0.8))
             text = " ".join(words[:keep])
 
-    # Still overflowing after 3 attempts
+    # Still overflowing after 3 attempts — cache and store anyway
+    tts_cache.put(tts_cache.cache_key(text, voice, model), pcm, config.TTS_CACHE_DIR)  # type: ignore[possibly-undefined]
     segment.tts_audio = _pcm_to_wav(pcm)  # type: ignore[possibly-undefined]
     segment.tts_duration_ms = duration_ms  # type: ignore[possibly-undefined]
     segment.status = SegmentStatus.OVERFLOW
@@ -133,16 +155,20 @@ def synthesize_all(
     """
     Sequentially synthesise TTS for all segments with GENERATED or FITTED status.
     Calls progress_cb(done, total) after each segment.
+    Reuses a single Gemini client across all segments.
     """
+    from google import genai
+
     eligible = [
         s for s in segments
         if s.status in (SegmentStatus.GENERATED, SegmentStatus.FITTED)
         and s.text.strip()
     ]
     total = len(eligible)
+    client = genai.Client(api_key=config.GEMINI_API_KEY)
 
     for done, segment in enumerate(eligible, start=1):
-        synthesize_segment(segment, voice=voice, model=model)
+        synthesize_segment(segment, voice=voice, model=model, client=client)
         if progress_cb:
             progress_cb(done, total)
 

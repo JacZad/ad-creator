@@ -44,8 +44,19 @@ def main() -> None:
     init_session_state()
     os.makedirs(config.TEMP_DIR, exist_ok=True)
 
-    # Check prerequisites on startup
-    errors = config.check_prerequisites()
+    # If API key missing from environment, ask the user for it
+    if not config.GEMINI_API_KEY:
+        st.title("AD Creator")
+        st.info("Klucz API Gemini nie został znaleziony w zmiennych środowiskowych.")
+        key = st.text_input("Klucz GEMINI_API_KEY", type="password", placeholder="Wklej tutaj klucz API")
+        if st.button("Zapisz klucz") and key.strip():
+            os.environ["GEMINI_API_KEY"] = key.strip()
+            config.GEMINI_API_KEY = key.strip()
+            st.rerun()
+        st.stop()
+
+    # Check remaining prerequisites (ffmpeg etc.)
+    errors = [e for e in config.check_prerequisites() if "GEMINI_API_KEY" not in e]
     if errors:
         st.error("⚠️ Brakujące zależności:\n\n" + "\n".join(f"- {e}" for e in errors))
         st.stop()

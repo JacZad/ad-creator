@@ -11,6 +11,7 @@ import re
 import time
 
 import config
+from utils import analysis_cache
 from utils.time_utils import mmss_to_ms
 
 _SYSTEM_PROMPT = """Jesteś ekspertem od audiodeskrypcji filmowej. Analizujesz podane wideo \
@@ -71,6 +72,13 @@ def analyze_video(
         # Uploaded file (Gemini File API)
         video_part = types.Part.from_uri(file_uri=video_ref.uri, mime_type=video_ref.mime_type)
 
+    # Check cache — key is based on original URL string (or file URI) + context
+    video_url_str = video_ref if isinstance(video_ref, str) else video_ref.uri
+    key = analysis_cache.cache_key(video_url_str, context)
+    cached = analysis_cache.get(key, config.ANALYSIS_CACHE_DIR)
+    if cached is not None:
+        return cached
+
     last_error: Exception | None = None
     for attempt in range(3):
         try:
@@ -80,7 +88,9 @@ def analyze_video(
             )
             raw = response.text
             descriptions = _extract_json(raw)
-            return convert_timestamps_to_ms(descriptions)
+            result = convert_timestamps_to_ms(descriptions)
+            analysis_cache.put(key, result, config.ANALYSIS_CACHE_DIR)
+            return result
         except Exception as exc:
             last_error = exc
             wait = 2 ** attempt * 3

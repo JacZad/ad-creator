@@ -81,11 +81,14 @@ def render() -> None:
         "Link do filmu",
         placeholder="https://www.youtube.com/watch?v=...",
     )
-    st.markdown("LUB")
-    uploaded_file = st.file_uploader(
-        "Przeslij plik wideo",
-        type=["mp4", "mov", "avi", "webm"],
-    )
+    if url.strip():
+        uploaded_file = None
+    else:
+        st.markdown("LUB")
+        uploaded_file = st.file_uploader(
+            "Przeslij plik wideo",
+            type=["mp4", "mov", "avi", "webm"],
+        )
     context = st.text_area(
         "Kontekst (opcjonalny)",
         placeholder="Jan Kowalski rozmawia z Anna Nowak.",

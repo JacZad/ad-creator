@@ -4,7 +4,9 @@ Script fitting module.
 For each Gemini visual description, finds the best speech-free gap to place it
 and creates an ADSegment at the appropriate position.
 
-One description → one segment. Large gaps can host multiple segments.
+Temporally close descriptions within a gap are merged into a single segment.
+Descriptions separated by more than _GROUP_THRESHOLD_MS get separate segments.
+This balances scene synchronisation with minimising TTS API calls.
 """
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ from collections import defaultdict
 
 import config
 from models.segment import ADSegment, SegmentStatus
+from pipeline.gap_detection import calculate_max_words
 
 _SHORTEN_PROMPT = """\
 Skróć poniższy opis wizualny do maksymalnie {max_words} słów.
@@ -27,8 +30,8 @@ _MIN_SHORTEN_WORDS = 8
 
 # How far back from a description's timestamp we look for a suitable gap (ms)
 _LOOK_BACK_MS = 15_000
-# Minimum spacing between two segments within the same gap (ms)
-_INTER_SEGMENT_GAP_MS = 300
+# Max time gap between descriptions before splitting into separate segments (ms)
+_GROUP_THRESHOLD_MS = 5_000
 
 
 def _shorten_text(text: str, max_words: int, model: str, client) -> str:
@@ -36,11 +39,6 @@ def _shorten_text(text: str, max_words: int, model: str, client) -> str:
     prompt = _SHORTEN_PROMPT.format(max_words=max_words, text=text)
     response = client.models.generate_content(model=model, contents=prompt)
     return response.text.strip()
-
-
-def _max_words(duration_ms: int) -> int:
-    effective_s = duration_ms / 1000
-    return max(1, int(effective_s * (config.AD_WORDS_PER_MINUTE / 60)))
 
 
 def fit_descriptions_to_gaps(
@@ -90,79 +88,98 @@ def fit_descriptions_to_gaps(
     for gap_i, desc in assignments:
         by_gap[gap_i].append(desc)
 
-    # Step 3: create one ADSegment per description, partitioning the gap
+    # Step 3: group temporally close descriptions, create one segment per group
     segments: list[ADSegment] = []
     seg_id = 1
 
     for gap_i in sorted(by_gap.keys()):
         gap = gaps[gap_i]
+        if gap["duration_ms"] < 1_500:
+            continue
+
         descs_in_gap = sorted(by_gap[gap_i], key=lambda d: d["time_ms"])
 
-        # Partition the gap into sub-slots, one per description
-        # sub-slot start = max(gap_start, T - 1s) to anticipate the visual event
-        # sub-slot end   = min(gap_end, next_T - 500ms)
-        cursor = gap["start_ms"]  # tracks earliest available position
-
-        for k, desc in enumerate(descs_in_gap):
-            T = desc["time_ms"]
-
-            slot_start = max(cursor, T - 1_000)
-
-            if k + 1 < len(descs_in_gap):
-                next_T = descs_in_gap[k + 1]["time_ms"]
-                slot_end = min(gap["end_ms"], next_T - _INTER_SEGMENT_GAP_MS)
+        # Split descriptions into groups where consecutive timestamps are ≤ threshold apart
+        groups: list[list[dict]] = [[descs_in_gap[0]]]
+        for desc in descs_in_gap[1:]:
+            if desc["time_ms"] - groups[-1][-1]["time_ms"] <= _GROUP_THRESHOLD_MS:
+                groups[-1].append(desc)
             else:
-                slot_end = gap["end_ms"]
+                groups.append([desc])
 
-            # Ensure the slot is at least 1.5 s and doesn't exceed the gap
-            slot_end = min(slot_end, gap["end_ms"])
-            if slot_end - slot_start < 1_500:
-                continue  # too short, skip
+        # Create one segment per group, dividing the gap proportionally
+        for g_idx, group in enumerate(groups):
+            # Segment boundaries: from first description's time (or gap start)
+            # to next group's first timestamp (or gap end)
+            if g_idx == 0:
+                seg_start = gap["start_ms"]
+            else:
+                seg_start = group[0]["time_ms"]
+                # Don't start before previous segment would end
+                seg_start = max(seg_start, gap["start_ms"])
 
-            duration_ms = slot_end - slot_start
-            max_words = _max_words(duration_ms)
+            if g_idx + 1 < len(groups):
+                seg_end = groups[g_idx + 1][0]["time_ms"]
+            else:
+                seg_end = gap["end_ms"]
+
+            seg_end = min(seg_end, gap["end_ms"])
+            duration_ms = seg_end - seg_start
+            if duration_ms < 1_500:
+                continue
+
+            merged_text = ". ".join(
+                d["description"].rstrip().rstrip(".") for d in group
+            ) + "."
+
+            max_words = calculate_max_words(duration_ms)
 
             segment = ADSegment(
                 id=seg_id,
-                gap_start_ms=slot_start,
-                gap_end_ms=slot_end,
+                gap_start_ms=seg_start,
+                gap_end_ms=seg_end,
                 gap_duration_ms=duration_ms,
                 max_words=max_words,
             )
             seg_id += 1
 
-            text = desc["description"]
-            word_count = len(text.split())
+            word_count = len(merged_text.split())
 
             if word_count <= max_words:
-                segment.text = text
+                segment.text = merged_text
                 segment.text_word_count = word_count
                 segment.status = SegmentStatus.GENERATED
             else:
-                # Try shortening up to 2 times
-                shortened = text
-                success = False
-                current_max = max(max_words, _MIN_SHORTEN_WORDS)
-                for attempt in range(2):
-                    try:
-                        shortened = _shorten_text(shortened, current_max, model, client)
-                        actual_count = len(shortened.split())
-                        if actual_count <= max(max_words, _MIN_SHORTEN_WORDS):
-                            segment.text = shortened
-                            segment.text_word_count = actual_count
-                            segment.status = SegmentStatus.GENERATED
-                            success = True
-                            break
-                        current_max = max(_MIN_SHORTEN_WORDS, current_max - 2)
-                    except Exception:
-                        time.sleep(2)
+                target = max(max_words, _MIN_SHORTEN_WORDS)
+                if word_count <= int(target * 1.3):
+                    words = merged_text.split()
+                    sliced = words[:target]
+                    segment.text = " ".join(sliced)
+                    segment.text_word_count = len(sliced)
+                    segment.status = SegmentStatus.GENERATED
+                else:
+                    shortened = merged_text
+                    success = False
+                    current_max = target
+                    for attempt in range(2):
+                        try:
+                            shortened = _shorten_text(shortened, current_max, model, client)
+                            actual_count = len(shortened.split())
+                            if actual_count <= target:
+                                segment.text = shortened
+                                segment.text_word_count = actual_count
+                                segment.status = SegmentStatus.GENERATED
+                                success = True
+                                break
+                            current_max = max(_MIN_SHORTEN_WORDS, current_max - 2)
+                        except Exception:
+                            time.sleep(2)
 
-                if not success:
-                    segment.text = shortened
-                    segment.text_word_count = len(shortened.split())
-                    segment.status = SegmentStatus.OVERFLOW
+                    if not success:
+                        segment.text = shortened
+                        segment.text_word_count = len(shortened.split())
+                        segment.status = SegmentStatus.OVERFLOW
 
             segments.append(segment)
-            cursor = slot_end + _INTER_SEGMENT_GAP_MS
 
     return sorted(segments, key=lambda s: s.gap_start_ms)

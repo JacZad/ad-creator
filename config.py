@@ -36,6 +36,8 @@ AD_MAX_SEGMENTS: int = int(os.getenv("AD_MAX_SEGMENTS", "200"))
 
 # --- Paths ---
 TEMP_DIR: str = os.getenv("TEMP_DIR", "temp")
+TTS_CACHE_DIR: str = os.getenv("TTS_CACHE_DIR", os.path.join(TEMP_DIR, "tts_cache"))
+ANALYSIS_CACHE_DIR: str = os.getenv("ANALYSIS_CACHE_DIR", os.path.join(TEMP_DIR, "analysis_cache"))
 
 
 def check_prerequisites() -> list[str]:
