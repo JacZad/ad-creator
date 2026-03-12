@@ -23,6 +23,10 @@ Zasady:
 - Podawaj znaczniki czasu w formacie MM:SS
 - Opisy muszą być konkretne, zwięzłe, obiektywne
 - Nie opisuj tego, co wynika z dialogów lub dźwięków
+- Teksty wyświetlane na ekranie odczytuj według priorytetu:
+  * ZAWSZE odczytuj w CAŁOŚCI dosłownie: tablice informacyjne, nazwiska i funkcje osób (np. „Jan Kowalski, reżyser"), tytuły filmów/programów, nazwy producentów i instytucji, źródła, daty, cytaty, napisy tłumaczące dialogi
+  * MOŻESZ pominąć: przypadkowe, nieczytelne lub nieistotne napisy w tle (np. szyld sklepu w oddali), jeśli nie wnoszą informacji do zrozumienia treści
+  * Nigdy nie parafrazuj ani nie streszczaj — cytuj dosłownie
 - Język: polski
 
 Odpowiedz WYŁĄCZNIE w formacie JSON (tablica obiektów), bez żadnego dodatkowego tekstu:
