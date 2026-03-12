@@ -22,8 +22,10 @@ def _get_env(name: str) -> str:
 # --- API ---
 GEMINI_API_KEY: str = _get_env("GEMINI_API_KEY")
 GEMINI_MODEL_ANALYSIS: str = os.getenv("GEMINI_MODEL_ANALYSIS", "gemini-2.5-flash")
-GEMINI_MODEL_TTS: str = os.getenv("GEMINI_MODEL_TTS", "gemini-2.5-flash-preview-tts")
-GEMINI_TTS_VOICE: str = os.getenv("GEMINI_TTS_VOICE", "Kore")
+
+OPENAI_API_KEY: str = _get_env("OPENAI_API_KEY")
+OPENAI_MODEL_TTS: str = os.getenv("OPENAI_MODEL_TTS", "tts-1-hd")
+OPENAI_TTS_VOICE: str = os.getenv("OPENAI_TTS_VOICE", "onyx")
 
 # --- Speech / gap detection ---
 VAD_THRESHOLD: float = float(os.getenv("VAD_THRESHOLD", "0.5"))  # Silero VAD, 0.0–1.0
@@ -45,6 +47,8 @@ def check_prerequisites() -> list[str]:
     errors = []
     if not GEMINI_API_KEY:
         errors.append("Brak zmiennej środowiskowej GEMINI_API_KEY.")
+    if not OPENAI_API_KEY:
+        errors.append("Brak zmiennej środowiskowej OPENAI_API_KEY.")
     if shutil.which("ffmpeg") is None:
         errors.append("FFmpeg nie jest zainstalowany lub nie jest w PATH. Pobierz z ffmpeg.org.")
     return errors

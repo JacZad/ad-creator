@@ -1,8 +1,8 @@
 """
 TTS synthesis module.
 
-Synthesises each ADSegment's text using Gemini 2.5 Flash TTS,
-converts PCM 24kHz 16-bit output to WAV, validates timing,
+Synthesises each ADSegment's text using OpenAI TTS,
+returns PCM 24kHz 16-bit output, validates timing,
 and applies overflow recovery strategies.
 """
 from __future__ import annotations
@@ -16,21 +16,12 @@ import config
 from models.segment import ADSegment, SegmentStatus
 from utils import tts_cache
 
-_SAMPLE_RATE = 24_000   # Hz
+_SAMPLE_RATE = 24_000   # Hz — matches OpenAI PCM output
 _SAMPLE_WIDTH = 2       # bytes (16-bit)
 _CHANNELS = 1
 
-_TTS_PROMPT = """\
-Przeczytaj poniższy tekst spokojnym, neutralnym tonem narratora audiodeskrypcji.
-Tempo: umiarkowane, wyraźna artykulacja.
-
-{text}"""
-
-_TTS_PROMPT_FAST = """\
-Przeczytaj poniższy tekst spokojnym, neutralnym tonem narratora audiodeskrypcji.
-Tempo: nieco szybsze niż zwykle, wyraźna artykulacja.
-
-{text}"""
+_TTS_SPEED_NORMAL = 1.0
+_TTS_SPEED_FAST = 1.3
 
 
 def _pcm_to_wav(pcm_data: bytes) -> bytes:
@@ -50,30 +41,16 @@ def _pcm_duration_ms(pcm_data: bytes) -> int:
     return int(frames / _SAMPLE_RATE * 1000)
 
 
-def _call_tts(text: str, prompt_template: str, client, model: str, voice: str) -> bytes:
-    """Call Gemini TTS and return raw PCM bytes."""
-    from google.genai import types
-
-    prompt = prompt_template.format(text=text)
-    response = client.models.generate_content(
+def _call_tts(text: str, speed: float, client, model: str, voice: str) -> bytes:
+    """Call OpenAI TTS and return raw PCM bytes (24kHz, 16-bit, mono)."""
+    response = client.audio.speech.create(
         model=model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name=voice,
-                    )
-                )
-            ),
-        ),
+        voice=voice,
+        input=text,
+        speed=speed,
+        response_format="pcm",
     )
-    # Extract inline audio data
-    for part in response.candidates[0].content.parts:
-        if part.inline_data and part.inline_data.data:
-            return part.inline_data.data
-    raise RuntimeError("Gemini TTS returned no audio data")
+    return response.content
 
 
 def synthesize_segment(
@@ -87,12 +64,12 @@ def synthesize_segment(
     Applies overflow recovery: retry with faster tempo, then shorten text 20%.
     Checks disk cache before making any API call.
     """
-    from google import genai
+    import openai
 
-    voice = voice or config.GEMINI_TTS_VOICE
-    model = model or config.GEMINI_MODEL_TTS
+    voice = voice or config.OPENAI_TTS_VOICE
+    model = model or config.OPENAI_MODEL_TTS
     if client is None:
-        client = genai.Client(api_key=config.GEMINI_API_KEY)
+        client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
 
     allowed_ms = segment.gap_duration_ms - 400  # 400 ms total safety margin
     text = segment.text
@@ -108,15 +85,15 @@ def synthesize_segment(
         return segment
 
     for attempt in range(3):
-        prompt_tpl = _TTS_PROMPT if attempt == 0 else _TTS_PROMPT_FAST
+        speed = _TTS_SPEED_NORMAL if attempt == 0 else _TTS_SPEED_FAST
         try:
-            pcm = _call_tts(text, prompt_tpl, client, model, voice)
+            pcm = _call_tts(text, speed, client, model, voice)
         except Exception as exc:
             exc_str = str(exc)
-            if "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str:
+            if "429" in exc_str or "rate_limit" in exc_str.lower():
                 raise RuntimeError(
-                    "Przekroczono dzienny limit zapytań TTS. "
-                    "Sprawdź limit w Google AI Studio lub spróbuj jutro."
+                    "Przekroczono limit zapytań TTS. "
+                    "Sprawdź limity w OpenAI lub spróbuj za chwilę."
                 ) from exc
             time.sleep(2 ** attempt)
             if attempt == 2:
@@ -155,9 +132,9 @@ def synthesize_all(
     """
     Sequentially synthesise TTS for all segments with GENERATED or FITTED status.
     Calls progress_cb(done, total) after each segment.
-    Reuses a single Gemini client across all segments.
+    Reuses a single OpenAI client across all segments.
     """
-    from google import genai
+    import openai
 
     eligible = [
         s for s in segments
@@ -165,7 +142,7 @@ def synthesize_all(
         and s.text.strip()
     ]
     total = len(eligible)
-    client = genai.Client(api_key=config.GEMINI_API_KEY)
+    client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
 
     for done, segment in enumerate(eligible, start=1):
         synthesize_segment(segment, voice=voice, model=model, client=client)
