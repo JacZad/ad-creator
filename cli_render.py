@@ -54,7 +54,9 @@ def main() -> None:
     parser.add_argument("video", help="YouTube/Vimeo URL or local video file path")
     parser.add_argument("srt", help="SRT file with audio description text")
     parser.add_argument("--voice", default=None, help="TTS voice name override")
-    parser.add_argument("--model", default=None, help="Gemini TTS model override")
+    parser.add_argument("--model", default=None, help="TTS model override")
+    parser.add_argument("--provider", default=None, choices=["gemini", "openai"],
+                        help="TTS provider (default: from config)")
     parser.add_argument("--output", default=None, help="Output file path")
     parser.add_argument("--audio-only", action="store_true",
                         help="Export AD audio track as WAV only, skip video mixing")
@@ -71,7 +73,6 @@ def main() -> None:
     from pipeline import video_source, mixing
     from pipeline.tts import synthesize_segment
     from models.segment import ADSegment, SegmentStatus
-    from google import genai
 
     video_ref = args.video
     video_id = video_source.get_video_id(video_ref)
@@ -107,14 +108,19 @@ def main() -> None:
         seg.status = SegmentStatus.GENERATED
         segments.append(seg)
 
-    print(f"[2/4] Synteza TTS ({len(segments)} segmentów)...")
-    voice = args.voice or config.GEMINI_TTS_VOICE
-    model = args.model or config.GEMINI_MODEL_TTS
-    client = genai.Client(api_key=config.GEMINI_API_KEY)
+    provider = args.provider or config.TTS_PROVIDER
+    if provider == "gemini":
+        voice = args.voice or config.GEMINI_TTS_VOICE
+        model = args.model or config.GEMINI_MODEL_TTS
+    else:
+        voice = args.voice or config.OPENAI_TTS_VOICE
+        model = args.model or config.OPENAI_MODEL_TTS
+
+    print(f"[2/4] Synteza TTS ({len(segments)} segmentów, {provider})...")
 
     for done, seg in enumerate(segments, start=1):
         print(f"       [{done}/{len(segments)}] {seg.text[:60]}...")
-        synthesize_segment(seg, voice=voice, model=model, client=client)
+        synthesize_segment(seg, provider=provider, voice=voice, model=model)
 
     fitted = [s for s in segments if s.status == SegmentStatus.FITTED]
     print(f"       {len(fitted)}/{len(segments)} segmentów zmieściło się w przerwie.")

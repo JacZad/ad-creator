@@ -27,6 +27,16 @@ OPENAI_API_KEY: str = _get_env("OPENAI_API_KEY")
 OPENAI_MODEL_TTS: str = os.getenv("OPENAI_MODEL_TTS", "tts-1-hd")
 OPENAI_TTS_VOICE: str = os.getenv("OPENAI_TTS_VOICE", "onyx")
 
+# --- Gemini TTS (multiple keys for rate-limit rotation) ---
+_raw_gemini_tts_keys = _get_env("GEMINI_API_KEYS") or GEMINI_API_KEY
+GEMINI_API_KEYS: list[str] = [k.strip() for k in _raw_gemini_tts_keys.split(",") if k.strip()]
+GEMINI_MODEL_TTS: str = os.getenv("GEMINI_MODEL_TTS", "gemini-2.5-flash-preview-tts")
+GEMINI_TTS_VOICE: str = os.getenv("GEMINI_TTS_VOICE", "Aoede")
+
+# --- TTS provider defaults ---
+TTS_PROVIDER: str = os.getenv("TTS_PROVIDER", "gemini")  # "gemini" or "openai"
+TTS_INTER_CALL_DELAY: float = float(os.getenv("TTS_INTER_CALL_DELAY", "2.0"))  # seconds between Gemini calls
+
 # --- Speech / gap detection ---
 VAD_THRESHOLD: float = float(os.getenv("VAD_THRESHOLD", "0.5"))  # Silero VAD, 0.0–1.0
 SILENCE_MIN_DURATION: float = float(os.getenv("SILENCE_MIN_DURATION", "1.5"))
@@ -47,8 +57,8 @@ def check_prerequisites() -> list[str]:
     errors = []
     if not GEMINI_API_KEY:
         errors.append("Brak zmiennej środowiskowej GEMINI_API_KEY.")
-    if not OPENAI_API_KEY:
-        errors.append("Brak zmiennej środowiskowej OPENAI_API_KEY.")
+    if not OPENAI_API_KEY and not GEMINI_API_KEYS:
+        errors.append("Brak zmiennej OPENAI_API_KEY ani GEMINI_API_KEYS — potrzebny co najmniej jeden dostawca TTS.")
     if shutil.which("ffmpeg") is None:
         errors.append("FFmpeg nie jest zainstalowany lub nie jest w PATH. Pobierz z ffmpeg.org.")
     return errors

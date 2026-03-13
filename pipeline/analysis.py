@@ -23,10 +23,15 @@ Zasady:
 - Podawaj znaczniki czasu w formacie MM:SS
 - Opisy muszą być konkretne, zwięzłe, obiektywne
 - Nie opisuj tego, co wynika z dialogów lub dźwięków
-- Teksty wyświetlane na ekranie odczytuj według priorytetu:
-  * ZAWSZE odczytuj w CAŁOŚCI dosłownie: tablice informacyjne, nazwiska i funkcje osób (np. „Jan Kowalski, reżyser"), tytuły filmów/programów, nazwy producentów i instytucji, źródła, daty, cytaty, napisy tłumaczące dialogi
-  * MOŻESZ pominąć: przypadkowe, nieczytelne lub nieistotne napisy w tle (np. szyld sklepu w oddali), jeśli nie wnoszą informacji do zrozumienia treści
-  * Nigdy nie parafrazuj ani nie streszczaj — cytuj dosłownie
+- TEKST NA EKRANIE — ZASADA BEZWZGLĘDNA:
+  * Każdy czytelny tekst informacyjny na ekranie MUSISZ odczytać DOSŁOWNIE, SŁOWO W SŁOWO, W CAŁOŚCI
+  * Dotyczy to: tablic, plansz, napisów końcowych (napisy końcowe = PEŁNA lista nazwisk i funkcji), tytułów, podpisów osób, nazw instytucji, źródeł, dat, cytatów, napisów tłumaczących, czołówek, plakatów, dokumentów
+  * ZAKAZANE jest streszczanie, omawianie lub opisywanie tekstu. NIE PISZ „wymienieni są autorzy", „pojawia się lista nazwisk", „na tablicy widnieje tekst" — zamiast tego PRZEPISZ dosłownie ten tekst
+  * Przykład BŁĘDNY: „Pojawiają się napisy końcowe z nazwiskami twórców"
+  * Przykład POPRAWNY: „Napisy końcowe. Reżyseria: Jan Kowalski. Scenariusz: Anna Nowak. Zdjęcia: Piotr Wiśniewski."
+  * Przykład BŁĘDNY: „Na tablicy informacyjnej widnieje opis wystawy"
+  * Przykład POPRAWNY: „Tablica: Wystawa czasowa. Sztuka polska XX wieku. Kurator: dr Maria Zielińska. Otwarcie: 15 marca 2025."
+  * MOŻESZ pominąć JEDYNIE: napisy całkowicie nieczytelne lub przypadkowe tło (np. odległy szyld sklepu), które nie wnoszą informacji
 - Język: polski
 
 Odpowiedz WYŁĄCZNIE w formacie JSON (tablica obiektów), bez żadnego dodatkowego tekstu:

@@ -9,6 +9,16 @@ from utils.validators import validate_url
 import utils.progress as progress_state
 
 
+_GEMINI_VOICES = [
+    "Aoede", "Charon", "Fenrir", "Kore", "Leda", "Orus", "Puck", "Zephyr",
+    "Achernar", "Achird", "Algenib", "Algieba", "Alnilam", "Autonoe",
+    "Callirrhoe", "Despina", "Enceladus", "Erinome", "Gacrux", "Iapetus",
+    "Laomedeia", "Pulcherrima", "Rasalgethi", "Sadachbia", "Sadaltager",
+    "Schedar", "Sulafat", "Umbriel", "Vindemiatrix", "Zubenelgenubi",
+]
+_OPENAI_VOICES = ["alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"]
+
+
 def _run_pipeline(url: str, context: str, model: str, project: ADProject, uploaded_file=None) -> None:
     from pipeline.video_source import extract_audio_wav, get_video_for_gemini
     from pipeline.gap_detection import detect_speech_gaps, apply_safety_margin
@@ -98,10 +108,54 @@ def render() -> None:
 
     with st.expander("Ustawienia zaawansowane"):
         model = st.selectbox(
-            "Model Gemini",
+            "Model Gemini (analiza)",
             options=["gemini-2.5-flash", "gemini-2.5-pro"],
             index=0,
         )
+
+        st.markdown("**Synteza mowy (TTS)**")
+
+        tts_provider = st.selectbox(
+            "Dostawca TTS",
+            options=["gemini", "openai"],
+            index=0 if config.TTS_PROVIDER == "gemini" else 1,
+            help="Gemini — lepsza jakość głosu, rotacja kluczy API. OpenAI — zapasowy.",
+        )
+
+        if tts_provider == "gemini":
+            tts_model = st.selectbox(
+                "Model TTS",
+                options=["gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"],
+                index=0,
+            )
+            tts_voice = st.selectbox(
+                "Głos TTS",
+                options=_GEMINI_VOICES,
+                index=_GEMINI_VOICES.index(config.GEMINI_TTS_VOICE) if config.GEMINI_TTS_VOICE in _GEMINI_VOICES else 0,
+            )
+            key_count = len(config.GEMINI_API_KEYS)
+            if key_count > 1:
+                st.caption(f"Rotacja kluczy API: {key_count} kluczy skonfigurowanych.")
+            elif key_count == 1:
+                st.caption("1 klucz API. Dodaj więcej w GEMINI_API_KEYS (oddzielone przecinkami) aby zwiększyć limit.")
+        else:
+            tts_model = st.selectbox(
+                "Model TTS",
+                options=["tts-1-hd", "tts-1"],
+                index=0,
+            )
+            tts_voice = st.selectbox(
+                "Głos TTS",
+                options=_OPENAI_VOICES,
+                index=_OPENAI_VOICES.index(config.OPENAI_TTS_VOICE) if config.OPENAI_TTS_VOICE in _OPENAI_VOICES else 0,
+            )
+
+        # Store TTS settings in session state for review page
+        st.session_state.tts_provider = tts_provider
+        st.session_state.tts_model = tts_model
+        st.session_state.tts_voice = tts_voice
+
+        st.markdown("**Detekcja przerw**")
         min_gap = st.number_input(
             "Minimalna przerwa (s)",
             min_value=0.5, max_value=10.0,

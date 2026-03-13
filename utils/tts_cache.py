@@ -10,9 +10,9 @@ import hashlib
 import os
 
 
-def cache_key(text: str, voice: str, model: str) -> str:
+def cache_key(text: str, voice: str, model: str, provider: str = "") -> str:
     """Return hex SHA-256 for the given TTS inputs."""
-    raw = f"{text}\x00{voice}\x00{model}".encode()
+    raw = f"{provider}\x00{text}\x00{voice}\x00{model}".encode()
     return hashlib.sha256(raw).hexdigest()
 
 

@@ -25,7 +25,7 @@ def _status_badge(status: SegmentStatus) -> str:
     return badges.get(status, str(status))
 
 
-def _run_tts(segments, selected_ids: set[int]) -> None:
+def _run_tts(segments, selected_ids: set[int], provider: str, model: str, voice: str) -> None:
     """Synthesise TTS for selected segments in background thread."""
     from pipeline.tts import synthesize_segment
     import utils.progress as progress_state
@@ -39,8 +39,11 @@ def _run_tts(segments, selected_ids: set[int]) -> None:
     total = len(eligible)
     try:
         for done, seg in enumerate(eligible, 1):
-            progress_state.set(f"Synteza mowy: {done}/{total}...", done / max(total, 1))
-            synthesize_segment(seg)
+            progress_state.set(
+                f"Synteza mowy ({provider}): {done}/{total}...",
+                done / max(total, 1),
+            )
+            synthesize_segment(seg, provider=provider, model=model, voice=voice)
         progress_state.finish(next_step=3)
     except Exception as exc:
         progress_state.fail(f"Blad syntezy mowy: {exc}")
@@ -146,11 +149,14 @@ def render() -> None:
 
     with col_tts:
         tts_ids = selected_ids - regenerate_ids
+        tts_provider = st.session_state.get("tts_provider", "gemini")
+        tts_model = st.session_state.get("tts_model")
+        tts_voice = st.session_state.get("tts_voice")
         if st.button("Generuj audio", type="primary", disabled=not tts_ids):
             progress_state.start()
             thread = threading.Thread(
                 target=_run_tts,
-                args=(segments, tts_ids),
+                args=(segments, tts_ids, tts_provider, tts_model, tts_voice),
                 daemon=True,
             )
             thread.start()
